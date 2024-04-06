@@ -1,0 +1,356 @@
+--- 
+---
+---
+
+##### ---
+
+output: html_document: default pdf_document: default word_document: default ---
+
+# Introduction
+
+Although there was a lot of data available, I lost some time finding data with which I could establish relationships and perform analysis. However, I eventually decided to examine the data on "Online Shopping","Consumer Confidence Index" and "Total Number of Closed Businesses" and to conduct regressions on these topics. These were subjects of interest to me. While examining the changes in these data, I had the opportunity to discover new things.
+
+First of all, let's install packages and read our data.
+
+```{r}
+require(data.table)
+require(lubridate)
+require(forecast)
+require(skimr)
+require(repr)
+require(openxlsx) #library(openxlsx)
+require(ggplot2)
+require(data.table)
+require(skimr)
+require(GGally)
+require(ggcorrplot)
+require(forecast)
+
+library(data.table)
+library(lubridate)
+library(forecast)
+library(skimr)
+library(repr)
+library(readxl)
+
+
+options(repr.plot.width=12.7, repr.plot.height=8.5)
+data <- read_excel("/Users/İbrahim/Downloads/data.xlsx")
+data <- data
+data=data.table(data)
+head(data,25)
+str(data)
+```
+
+## Model 1
+
+Let's start by examining the "Online Shopping" topic. We can begin our analysis by looking at our data.
+
+```{r}
+ggplot(data ,aes(x=Tarih,y=int_alisverisi, group=1)) + geom_line()
+
+```
+
+When analyzing the topic of online shopping, considering Google searches related to holidays and discounts can be very helpful for our analysis. Let's explore the relationship between these searches and our topic.
+
+```{r}
+ggplot(data ,aes(x=bayram_search,y=int_alisverisi)) + geom_point() +geom_smooth(method='lm')
+```
+
+Now, let's create a plot to see the correlation by month.
+Note:Running this code chunk once is enough for the whole progress.
+
+```{r}
+data[,trnd:=1:.N]
+data[,mon:=as.character(month(Tarih,label=T))]
+data[,yıl:=as.character(year(Tarih))]
+
+```
+
+```{r}
+ggplot(data,aes(x=bayram_search,y=int_alisverisi)) +
+        geom_point() + geom_smooth(method=lm,linewidth=3) + facet_wrap(~mon)
+```
+
+Let's inspect if our online shopping data is correlated with itself.
+
+```{r}
+acf(data$int_alisverisi)
+```
+
+With taking trend into consideration, let's start to build our model. We observed the trend when we first inspected the visualization of the data.
+
+```{r}
+
+lm_base=lm(int_alisverisi~trnd,data)
+summary(lm_base)
+checkresiduals(lm_base$residuals)
+
+tmp=copy(data)
+tmp[,actual:=int_alisverisi]
+tmp[,predicted_trend:=predict(lm_base,tmp)]
+tmp[,residual_trend:=actual-predicted_trend]
+#head(tmp)
+ggplot(tmp ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend,color='predicted'))
+
+
+```
+
+Now, it's time to look at the relationship between holiday searches and our data. When using the holiday search data to explain our data, we can actually see that this is a very accurate method. This is because our R-squared value is high, which indicates that our model is on the right track. But keep in mind there is still a lot to improve.
+
+```{r}
+
+lm_base=lm(int_alisverisi~trnd+bayram_search,data)
+summary(lm_base)
+checkresiduals(lm_base)
+tmp[,predicted_trend_bayram:=predict(lm_base,tmp)]
+tmp[,residual_trend_bayram:=actual-predicted_trend_bayram]
+ggplot(tmp ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend_bayram,color='predicted'))
+plot(lm_base)
+
+```
+
+But now, it's time to add the year "dummy variable" to our model, which will help make our model more accurate. With this method, we might also be able to observe the effect of seasonality.
+
+
+```{r}
+
+lm_base=lm((int_alisverisi)~trnd+(bayram_search)+yıl,data)
+summary(lm_base)
+checkresiduals(lm_base)
+
+tmp[,predicted_trend_bayram_yıl:=predict(lm_base,tmp)]
+tmp[,residual_trend_bayram_yıl:=actual-predicted_trend_bayram_yıl]
+ggplot(tmp ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend_bayram_yıl,color='predicted'))
+plot(lm_base)
+
+```
+Now, we will check the if there is a relationship between the search for "sales". As we may observe, there is not much of an improvement in our model.
+
+```{r}
+
+lm_base=lm((int_alisverisi)~trnd+(bayram_search)+yıl+indirim_search,data)
+summary(lm_base)
+checkresiduals(lm_base)
+
+tmp[,predicted_trend_bayram_yıl_indirim:=predict(lm_base,tmp)]
+tmp[,residual_trend_bayram_yıl_indirim:=actual-predicted_trend_bayram_yıl_indirim]
+ggplot(tmp ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend_bayram_yıl_indirim,color='predicted'))
+plot(lm_base)
+
+```
+## Model 2
+
+In this model, we will be looking at the "Consumer Confidence Index," which is a measure of consumers' optimism or pessimism about the economy's prospects, and its impact on their spending and saving behavior.
+
+Let's check the data visualization first.
+
+```{r}
+ggplot(data ,aes(x=Tarih,y=tüketici_güven_endeksi, group=1)) + geom_line()
+```
+
+The commercial interest rate and real confidence index data seem like useful information to explain our data. Therefore, let's add them to our model and examine their effects.
+
+```{r}
+ggplot(data ,aes(x=ticari_faiz,y=tüketici_güven_endeksi)) + geom_point() +geom_smooth(method='lm')
+```
+
+```{r}
+ggplot(data ,aes(x=reel_güven_indeksi,y=tüketici_güven_endeksi)) + geom_point() +geom_smooth(method='lm')
+
+```
+
+By plotting the commercial interest rate and real confidence index data, let's see if there is a monthly correlation.
+
+```{r}
+ggplot(data,aes(x=ticari_faiz,y=tüketici_güven_endeksi)) +
+        geom_point() + geom_smooth(method=lm,linewidth=3) + facet_wrap(~mon)
+```
+
+```{r}
+ggplot(data,aes(x=reel_güven_indeksi,y=tüketici_güven_endeksi)) +
+        geom_point() + geom_smooth(method=lm,linewidth=3) + facet_wrap(~mon)
+```
+
+```{r}
+acf(data$tüketici_güven_endeksi)
+```
+
+With taking trend into consideration, let's start to build our model. We observed the trend when we first inspected the visualization of the data.
+
+```{r}
+
+lm_base1=lm(tüketici_güven_endeksi~trnd,data)
+summary(lm_base1)
+checkresiduals(lm_base1$residuals)
+
+tmp1=copy(data)
+tmp1[,actual:=tüketici_güven_endeksi]
+tmp1[,predicted_trend:=predict(lm_base1,tmp)]
+tmp1[,residual_trend:=actual-predicted_trend]
+#head(tmp)
+ggplot(tmp1 ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend,color='predicted'))
+plot(lm_base1)
+```
+
+Let's add independent variables to our model. Those changes will increase our R-squared value, a better residual-fitted
+distribution. This means our residuals lay around 0.
+
+```{r}
+
+lm_base1=lm(tüketici_güven_endeksi~trnd+ticari_faiz,data)
+summary(lm_base1)
+checkresiduals(lm_base1$residuals)
+
+tmp1=copy(data)
+tmp1[,actual:=tüketici_güven_endeksi]
+tmp1[,predicted_trend_ticari_faiz:=predict(lm_base1,tmp)]
+tmp1[,residual_trend_ticari_faiz:=actual-predicted_trend_ticari_faiz]
+#head(tmp)
+ggplot(tmp1 ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend_ticari_faiz,color='predicted'))
+plot(lm_base1)
+```
+
+```{r}
+
+lm_base1=lm(tüketici_güven_endeksi~trnd+ticari_faiz+reel_güven_indeksi,data)
+summary(lm_base1)
+checkresiduals(lm_base1$residuals)
+
+tmp1=copy(data)
+tmp1[,actual:=tüketici_güven_endeksi]
+tmp1[,predicted_trend_ticari_faiz_reel_güven:=predict(lm_base1,tmp)]
+tmp1[,residual_trend_ticari_faiz_reel_güven:=actual-predicted_trend_ticari_faiz_reel_güven]
+#head(tmp)
+ggplot(tmp1 ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend_ticari_faiz_reel_güven,color='predicted'))
+plot(lm_base1)
+```
+
+## Model 3
+
+Last but not least, we will be looking at the "Total Number of Closed Businesses," meaning that we will examine the factors influencing the closure of businesses over time and analyze trends to identify potential economic or sector-specific challenges.
+
+Let's look at the visualization and data, as always.
+
+```{r}
+ggplot(data ,aes(x=Tarih,y=toplam_kapanan_isyeri, group=1)) + geom_line()
+```
+
+It is logical to use "Financial Confidence Index" and "Total Number of Offices" data. Those will be helpful for us to analyze our independent data. 
+
+```{r}
+ggplot(data ,aes(x=finans_güven_endeksi,y=toplam_kapanan_isyeri)) + geom_point() +geom_smooth(method='lm')
+```
+
+```{r}
+ggplot(data ,aes(x=toplam_ofis,y=toplam_kapanan_isyeri)) + geom_point() +geom_smooth(method='lm')
+```
+
+By plotting the commercial "Financial Confidence Index" and "Total Number of Offices", let's see if there is a monthly correlation.
+
+```{r}
+ggplot(data,aes(x=finans_güven_endeksi,y=toplam_kapanan_isyeri)) +
+        geom_point() + geom_smooth(method=lm,linewidth=3) + facet_wrap(~mon)
+```
+
+```{r}
+ggplot(data,aes(x=toplam_ofis,y=toplam_kapanan_isyeri)) +
+        geom_point() + geom_smooth(method=lm,linewidth=3) + facet_wrap(~mon)
+```
+
+Utilise Auto Correlation Function to see if there is any correlation within our data.
+
+```{r}
+acf(data$toplam_kapanan_isyeri)
+```
+
+It is obvious the lag-13 effect in the data. This could be a 2 week correlation which would eventually end up as a month seasonality over the data.
+
+```{r}
+
+lm_base2=lm(toplam_kapanan_isyeri~trnd,data)
+summary(lm_base2)
+checkresiduals(lm_base2$residuals)
+
+tmp2=copy(data)
+tmp2[,actual:=toplam_kapanan_isyeri]
+tmp2[,predicted_trend:=predict(lm_base2,tmp)]
+tmp2[,residual_trend:=actual-predicted_trend]
+#head(tmp)
+ggplot(tmp2 ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend,color='predicted'))
+plot(lm_base2)
+```
+Now, let's add "Financial Confidence Index" data to the model for improvement.
+
+```{r}
+
+lm_base2=lm(toplam_kapanan_isyeri~trnd+finans_güven_endeksi,data)
+summary(lm_base2)
+checkresiduals(lm_base2$residuals)
+
+tmp2=copy(data)
+tmp2[,actual:=toplam_kapanan_isyeri]
+tmp2[,predicted_trend_finans_güven_endeksi:=predict(lm_base2,tmp)]
+tmp2[,residual_trend_finans_güven_endeksi:=actual-predicted_trend_finans_güven_endeksi]
+#head(tmp)
+ggplot(tmp2 ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend_finans_güven_endeksi,color='predicted'))
+plot(lm_base2)
+```
+
+Now it is time to add "Total Number of Offices" to the model for improvement.
+
+
+```{r}
+
+lm_base2=lm(toplam_kapanan_isyeri~trnd+finans_güven_endeksi+toplam_ofis,data)
+summary(lm_base2)
+checkresiduals(lm_base2$residuals)
+
+tmp2=copy(data)
+tmp2[,actual:=toplam_kapanan_isyeri]
+tmp2[,predicted_trend_finans_güven_endeksi_toplam_ofis:=predict(lm_base2,tmp)]
+tmp2[,residual_trend_finans_güven_endeksi_toplam_ofis:=actual-predicted_trend_finans_güven_endeksi_toplam_ofis]
+#head(tmp)
+ggplot(tmp2 ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend_finans_güven_endeksi_toplam_ofis,color='predicted'))
+plot(lm_base2)
+```
+
+Now we could check the year effect to see the relation. As observed in the bottom this improves our model, but we still have a very week model with a very low r-squared value. The exponential growth of the number of closed businesses could be interpreted with the use of logarithm function. This would take out the exp. effect and we would have a smoother graph. 
+
+
+```{r}
+
+lm_base2=lm(toplam_kapanan_isyeri~trnd+finans_güven_endeksi+toplam_ofis+yıl,data)
+summary(lm_base2)
+checkresiduals(lm_base2$residuals)
+
+tmp2=copy(data)
+tmp2[,actual:=toplam_kapanan_isyeri]
+tmp2[,predicted_trend_finans_güven_endeksi_toplam_ofis_yıl:=predict(lm_base2,tmp)]
+tmp2[,residual_trend_finans_güven_endeksi_toplam_ofis_yıl:=actual-predicted_trend_finans_güven_endeksi_toplam_ofis_yıl]
+#head(tmp)
+ggplot(tmp2 ,aes(x=Tarih)) +
+        geom_line(aes(y=actual,color='real')) + 
+        geom_line(aes(y=predicted_trend_finans_güven_endeksi_toplam_ofis_yıl,color='predicted'))
+plot(lm_base2)
+```
