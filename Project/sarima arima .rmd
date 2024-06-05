@@ -1,0 +1,87 @@
+# Alternative Approach: SARIMA Model
+
+In addition to our primary approach, we explored using a Seasonal ARIMA (SARIMA) model to forecast solar power production. The SARIMA model combines autoregressive (AR) and moving average (MA) components with seasonal differencing to account for both regular patterns and seasonality in the data. We loaded the necessary libraries and production data, converting date and hour columns into a datetime format. After sorting the data by datetime, we defined the ARIMA order parameters (order_param = c(2, 0, 1)) and seasonal order parameters (seasonal_order_param = c(2, 1, 0)). These ARIMA values were determined by running another script, which provided the best ARIMA and SARIMA parameters through a trial and error method. We fit the SARIMA model on the production data from January 10, 2022, and generated a 24-hour forecast. Despite the detailed modeling, the SARIMA model did not perform as effectively as our chosen linear regression approach, highlighting the complexity of accurately forecasting solar power production with this method.
+
+```{r}
+require(data.table)
+require(lubridate)
+require(forecast)
+require(skimr)
+require(repr)
+require(openxlsx) #library(openxlsx)
+require(ggplot2)
+require(data.table)
+require(skimr)
+require(GGally)
+require(ggcorrplot)
+require(forecast)
+
+library(data.table)
+library(lubridate)
+library(forecast)
+library(skimr)
+library(repr)
+library(readxl)
+todays_date=Sys.Date()
+forecast_date=todays_date+1
+
+
+options(repr.plot.width=12.7, repr.plot.height=8.5)
+
+data_path2='/Users/kesici/Downloads/processed_weather.csv'
+
+weather_info=fread(data_path2)
+
+weather_info[,datetime:=ymd(date)+dhours(hour)]
+weather_info=weather_info[order(datetime)]
+
+head(weather_info,25)
+
+data_path='/Users/kesici/Downloads/production 2.csv'
+production=fread(data_path)
+production[,datetime:=ymd(date)+dhours(hour)]
+production=production[order(datetime)]
+
+
+head(production,25)
+str(production)
+
+```
+
+```{r}
+
+# Load libraries
+library(forecast)
+library(data.table)
+library(lubridate)
+
+# Read data
+data_path = '/Users/kesici/Downloads/production 2.csv'
+production_a <- fread(data_path)
+
+# Convert datetime columns
+production_a[, datetime := ymd_hms(paste(date, hour))]
+
+# Sort by datetime
+setorder(production_a, datetime)
+
+# Define the SARIMA model parameters
+order_param <- c(2, 0, 1)  # ARIMA order
+seasonal_order_param <- c(2, 1, 0)  # Seasonal order
+a=production_a[production_a$date >="2022-01-10",]
+
+
+# Fit the SARIMA model
+sarima_model <- Arima(a$production, order = order_param, seasonal = seasonal_order_param)
+
+# Forecast future values
+forecast_horizon <- 24  # Number of periods to forecast
+forecast_result <- forecast(sarima_model, h = forecast_horizon)
+
+# Print the forecast result
+print(forecast_result)
+
+# Plot the forecast
+plot(forecast_result)
+
+```

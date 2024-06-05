@@ -1,0 +1,398 @@
+---
+output: html_document
+---
+
+# IE 360 Project - Group 12
+
+### Mustafa Said Kesici, Hamza Pamukçu, İbrahim Bülbül
+
+# Introduction
+
+## Problem Description
+
+The primary objective of this project is to predict hourly solar power prediction for the Edikli GES (Güneş Enerjisi Santrali) solar power plant located in Niğde. The forecasting period spans from May 14 to June 4, with 24-hour predictions generated for each day. The forecasting model utilizes production data up to two days before the target date, ensuring that the data is refreshed daily within this time frame to enhance prediction accuracy.
+
+## Data Description
+
+The data utilized in this project comprises two main components: weather data and solar power production data. The weather data includes variables such as downward shortwave radiation flux (dswrf_surface), cloud cover at various atmospheric levels (tcdc_low.cloud.layer, tcdc_middle.cloud.layer, tcdc_high.cloud.layer), and temperature at the surface (tmp_surface). This weather data is recorded hourly and provides crucial information on the environmental conditions affecting solar power production.
+
+The solar power production data includes the hourly production values recorded at the Edikli GES plant. Both datasets are merged using a common datetime index, ensuring that each production record is associated with the corresponding weather conditions. This combined dataset is essential for developing accurate predictive models, as it allows for the analysis of how weather variables influence solar power output.
+
+## Summary of the Proposed Approach
+
+Our approach involves using a combination of weather variables and historical production data to build predictive models. We start with data preprocessing to clean and organize the data, followed by exploratory data analysis to identify key patterns and relationships. We then build several linear regression models, gradually adding more variables to improve the accuracy of our predictions.
+
+```{r}
+require(data.table)
+require(lubridate)
+require(forecast)
+require(skimr)
+require(repr)
+require(openxlsx) #library(openxlsx)
+require(ggplot2)
+require(data.table)
+require(skimr)
+require(GGally)
+require(ggcorrplot)
+require(forecast)
+
+library(data.table)
+library(lubridate)
+library(forecast)
+library(skimr)
+library(repr)
+library(readxl)
+```
+
+These libraries are essential for data manipulation, time series analysis, visualization, and handling date-time operations.
+
+```{r}
+todays_date=Sys.Date()
+forecast_date=todays_date+1
+
+
+options(repr.plot.width=12.7, repr.plot.height=8.5)
+
+data_path2='/Users/kesici/Downloads/processed_weather.csv'
+
+weather_info=fread(data_path2)
+
+weather_info[,datetime:=ymd(date)+dhours(hour)]
+weather_info=weather_info[order(datetime)]
+
+head(weather_info,25)
+
+data_path='/Users/kesici/Downloads/production 2.csv'
+production=fread(data_path)
+production[,datetime:=ymd(date)+dhours(hour)]
+production=production[order(datetime)]
+
+
+head(production,25)
+str(production)
+
+```
+
+After loading the required libraries, the code sets the current date and the forecast date for generating predictions. It adjusts the plot dimensions for better visualization. The weather data is read from a CSV file, and a new datetime column is created by combining the date and hour columns. This data is then sorted by the datetime column. Similarly, the solar power production data is read from another CSV file, a datetime column is created, and the data is sorted accordingly. Displaying the first few rows of both datasets and examining their structure ensures that the data is correctly formatted and ready for further analysis.
+
+```{r}
+hourly_series=weather_info[,list(dswrf_surface=sum(dswrf_surface)/25,tcdc_low.cloud.layer=sum(tcdc_low.cloud.layer)/25,tcdc_middle.cloud.layer=sum(tcdc_middle.cloud.layer)/25,tcdc_high.cloud.layer=sum(tcdc_high.cloud.layer)/25,tcdc_entire.atmosphere=sum(tcdc_entire.atmosphere)/25,uswrf_top_of_atmosphere=sum(uswrf_top_of_atmosphere)/25,csnow_surface=sum(csnow_surface)/25,dlwrf_surface=sum(dlwrf_surface)/25,swrf_surface=sum(uswrf_surface)/25,tmp_surface=sum(tmp_surface)/25),list(date,hour)]
+
+hourly_series[,datetime:=ymd(date)+dhours(hour)]
+head(hourly_series)
+
+```
+
+The provided code aggregates the weather data to create an hourly summary by averaging values over 25 grid points.
+
+```{r}
+mergeddata<-merge(hourly_series,production,by="datetime",all.x=T)
+head(mergeddata)
+newdata=mergeddata
+newdata=newdata[,-c("date.y")]
+newdata=newdata[,-c("hour.y")]
+basedata=newdata[,-c("date.x")]
+basedata=basedata[,-c("hour.x")]
+basedata=basedata[,-c("datetime")]
+head(newdata)
+head(basedata)
+
+```
+
+The provided code merges the aggregated weather data with the production data to create a comprehensive dataset for analysis.
+
+Next, unnecessary columns resulting from the merge are removed such as hour and date. Then the first few rows of 'newdata' and 'basedata' are displayed to confirm the column removals and the final structure of the datasets
+
+```{r}
+ggpairs(basedata)
+basedata=basedata[,-c("csnow_surface")]
+basedata=basedata[,-c("hour")]
+basedata=basedata[,-c("datetime")]
+head(basedata,25)
+corr<-round(cor(basedata),1)
+```
+
+The provided code conducts exploratory data analysis by visualizing pairwise relationships and computing correlations between variables in the dataset.
+
+Next, unnecessary columns are removed from basedata such as csnow_surface, hour and datetime because they are not needed for the correlation analysis
+
+Finally, we calculate the correlation matrix for the remaining variables in 'basedata'.
+
+```{r}
+daily_series=newdata[,list(total=sum(production)),by=list(date.x)]
+ggplot(daily_series, aes(date.x,total, group=1)) + geom_line() +geom_point()
+a=newdata[!is.na(production)]
+acf(a$production)
+
+newdata
+```
+
+First, we create a daily aggregated series of production data, then a line plot is drawn to visualize the daily total production. After these steps, we plot the autocorrelation function (ACF) to identify patterns and periodicity in the time series data.
+
+```{r}
+production1 <- ts(production$production, freq=365)
+daily_ts_multip<-decompose(production1, type="additive")
+plot(daily_ts_multip)
+```
+
+Seasonal and trend decomposition separates a time series into three components: trend, seasonal, and residual. The trend component captures the long-term direction, the seasonal component identifies regular repeating patterns, and the residual component represents random noise. This decomposition helps in better understanding and modeling the different factors influencing solar power production, improving the accuracy of our predictive models.
+
+# Related Literature
+
+For this project, we primarily relied on course notes to guide our approach and methodology. These notes provided the foundational concepts and techniques necessary for our analysis. However, in instances where we encountered challenges or needed further clarification, we referred to previous coding examples and sought assistance from GPT for code corrections and improvements. This combination of resources ensured a robust and accurate development of our forecasting models.
+
+# Approach
+
+Our approach to forecasting hourly solar power production involves several key steps to prepare and analyze the data, followed by developing predictive models.
+
+Firstly, we convert our cleaned and processed data into a data.table format for efficient manipulation. We then create several lagged variables of the production data, which capture the influence of past production values on current production. These lagged variables range from 1-hour to 96-hour intervals, providing a comprehensive temporal view of past production trends.
+
+In addition to lagged production values, we generate categorical features to capture temporal patterns, such as the hour of the day, the season, and other date-related factors. For instance, we categorize the hour of the day and the quarter of the year (season). We also extract specific components from the datetime field, such as the hour, day, week, and month, to create features like saat, gun, hafta, and ay.
+
+To incorporate weather effects, we calculate the maximum (tmax) and minimum (tmin) daily surface temperatures. We also introduce a trend variable to capture any underlying trends over the period of data collection.
+
+Finally, we create lagged weather variables, such as lagged downward shortwave radiation flux (dswrf_surface), to account for delayed effects of weather conditions on production.
+
+By enriching our dataset with these engineered features, we aim to capture a wide range of factors influencing solar power production, which forms the basis for our predictive modeling.
+
+```{r}
+
+
+datapn<-data.table(newdata)
+#head(datapn,15)
+
+lag15<-shift(datapn$production, n=15L, fill=NA)
+datapn$lag15<-lag15
+
+
+lag48<-shift(datapn$production, n=48L, fill=NA)
+datapn$lag48<-lag48
+
+lag72<-shift(datapn$production, n=72L, fill=NA)
+datapn$lag72<-lag72
+
+lag96<-shift(datapn$production, n=96L, fill=NA)
+datapn$lag96<-lag96
+
+lag95<-shift(datapn$production, n=95L, fill=NA)
+datapn$lag95<-lag95
+lag95<-shift(datapn$production, n=95L, fill=NA)
+datapn$lag95<-lag95
+
+lag47<-shift(datapn$production, n=47L, fill=NA)
+datapn$lag47<-lag47
+
+lag71<-shift(datapn$production, n=71L, fill=NA)
+datapn$lag71<-lag71
+
+lag49<-shift(datapn$production, n=49L, fill=NA)
+datapn$lag49<-lag49
+
+lag73<-shift(datapn$production, n=73L, fill=NA)
+datapn$lag73<-lag73
+
+lag14<-shift(datapn$production, n=14L, fill=NA)
+datapn$lag14<-lag14
+lag13<-shift(datapn$production, n=13L, fill=NA)
+datapn$lag13<-lag13
+lag12<-shift(datapn$production, n=12L, fill=NA)
+datapn$lag12<-lag12
+lag11<-shift(datapn$production, n=11L, fill=NA)
+datapn$lag11<-lag11
+lag16<-shift(datapn$production, n=16L, fill=NA)
+datapn$lag16<-lag16
+lag24<-shift(datapn$production, n=24L, fill=NA)
+datapn$lag24<-lag24
+lag23<-shift(datapn$production, n=23L, fill=NA)
+datapn$lag23<-lag23
+lag25<-shift(datapn$production, n=25L, fill=NA)
+datapn$lag25<-lag25
+lag8<-shift(datapn$production, n=8L, fill=NA)
+datapn$lag8<-lag8
+lag6<-shift(datapn$production, n=6L, fill=NA)
+datapn$lag6<-lag6
+lag1<-shift(datapn$production, n=1L, fill=NA)
+datapn$lag1<-lag1
+lag2<-shift(datapn$production, n=2L, fill=NA)
+datapn$lag2<-lag2
+datapn$hoursoftheday<-as.factor(datapn$hour.x)
+datapn$season<-as.factor(quarter(datapn$date.x))
+datapn[,saat:=as.character(hour(datetime))]
+datapn[,gun:=as.character(day(date.x))]
+datapn[,hafta:=as.character(week(date.x))]
+datapn[,ay:=as.character(month(date.x))]
+datapn[,tmax:=max(tmp_surface),by=date.x]
+datapn[,tmin:=min(tmp_surface),by=date.x]
+trend<-c(1:nrow((datapn)))
+datapn$trend<-trend
+lag1dswrf<-shift(datapn$dswrf_surface, n=1L, fill=NA)
+datapn$lag1dswrf<-lag1dswrf
+lag12dswrf<-shift(datapn$dswrf_surface, n=12L, fill=NA)
+datapn$lag12dswrf<-lag12dswrf
+
+```
+
+After preparing and enriching our dataset with lagged variables and categorical features, we proceed to develop and evaluate multiple linear regression models to predict solar power production. The process begins with simple models and progressively incorporates more variables to enhance predictive accuracy.
+
+For example, the first model (lm0) is a simple linear regression where production is predicted solely based on the downward shortwave radiation flux (dswrf_surface).
+
+We conduct summary and residual analysis to check the models performance for each model individually.
+
+```{r}
+lm0<-lm(production~dswrf_surface,data = datapn)
+summary(lm0)
+checkresiduals(lm0)
+#################################################
+
+
+lm2<-lm(production~dswrf_surface+lag12,data = datapn)
+summary(lm2)
+checkresiduals(lm2)
+
+#############################################
+
+lm3<-lm(production~dswrf_surface+lag12+tcdc_low.cloud.layer,data = datapn)
+summary(lm3)
+checkresiduals(lm3)
+
+############################################
+
+lm4<-lm(production~dswrf_surface+lag12+tcdc_low.cloud.layer+lag6+lag1,data = datapn)
+summary(lm4)
+checkresiduals(lm4)
+
+##########################################
+
+lm5<-lm(production~dswrf_surface+lag12+tcdc_low.cloud.layer+lag1+tmax+tmin+lag6,data = datapn)
+summary(lm5)
+checkresiduals(lm5)
+
+##########################################
+
+
+lm6<-lm(production~dswrf_surface+lag12+tcdc_low.cloud.layer+lag1+tmax+hoursoftheday+ay,data = datapn)
+summary(lm6)
+checkresiduals(lm6)
+
+#########################################
+
+lm7<-lm(production~log(dswrf_surface+1)+lag12+log(tcdc_low.cloud.layer+1)+lag1+tmax+hoursoftheday,data = datapn)
+summary(lm7)
+checkresiduals(lm7)
+
+########################################
+
+lm8<-lm(production~log(dswrf_surface+1)+lag12+season+log(tcdc_low.cloud.layer+1)+lag1+tmax+hoursoftheday,data = datapn)
+summary(lm8)
+checkresiduals(lm8)
+
+##########################################
+lm9<-lm(production~log(dswrf_surface+1)+lag12+season+log(tcdc_low.cloud.layer+1)+tmax+hoursoftheday+trend+lag1,data = datapn)
+summary(lm9)
+checkresiduals(lm9)
+##############################################
+
+lm10<-lm(production~log(dswrf_surface+1)+lag12+season+log(tcdc_low.cloud.layer+1)+tmax+hoursoftheday+trend+lag1,data = datapn)
+summary(lm10)
+checkresiduals(lm10)
+
+##############################################
+
+lm11<-lm(production~log(dswrf_surface+1)+lag12+season+log(tcdc_low.cloud.layer+1)+tmax+hoursoftheday+trend+lag2+lag1+lag1dswrf,data = datapn)
+summary(lm11)
+checkresiduals(lm11)
+
+##############################################
+
+lm12<-lm(production~dswrf_surface+tmax+tcdc_entire.atmosphere+hoursoftheday+lag1+lag24+lag23+lag25+hafta+ay,data = datapn)
+summary(lm12)
+checkresiduals(lm12)
+
+##############################################
+
+lm13<-lm(production~dswrf_surface+tmp_surface+tcdc_entire.atmosphere+lag73+lag72+lag71+lag48+lag47+lag49+ay+hoursoftheday+hafta,data = datapn)
+summary(lm13)
+checkresiduals(lm13)
+
+
+```
+
+As we continue our search, we found that model12 has a great R\^2 value which would meet our expactations. But since model12 works on lag1 and our aim is to find 48-hours later production, we construct a very similar model13. This model is the best candidate for our aim.
+
+After evaluating multiple models, we chose Model 13 (lm13) for our final analysis. This decision was based on its superior performance in capturing the key factors influencing solar power production. Model 13 incorporates a comprehensive set of variables, including downward shortwave radiation flux (dswrf_surface), surface temperature (tmp_surface), total cloud cover (tcdc_entire.atmosphere), and several lagged production values (e.g., lag73, lag72, lag71, lag48, lag47, and lag49). Additionally, it includes categorical time features such as the hour of the day (hoursoftheday), month (ay), and week of the year (hafta). This model's detailed consideration of both immediate and longer-term lagged production values, along with its incorporation of important weather variables, allows it to more accurately capture the complexities of solar power production, making it the most robust and reliable choice for our forecasting needs.
+
+# Results
+
+```{r}
+lm13<-lm(production~dswrf_surface+tmp_surface+tcdc_entire.atmosphere+lag73+lag72+lag71+lag48+lag47+lag49+ay+hoursoftheday+hafta,data = datapn)
+summary(lm13)
+#checkresiduals(lm13)
+
+tmp=copy(datapn)
+tmp=tmp[tmp$date.x >="2024-05-14",]
+
+tmp[,actual:=production]
+
+tmp[,predicted_trend:=predict(lm12,tmp)]
+
+tmp[,residual_trend:=actual-predicted_trend]
+tmp[,hour.y:=hour.x]
+tmp[,date.y:=date.x]
+tmp
+```
+
+```{r}
+# Assuming 'tmp2' contains the 'actual' and 'predicted_trend' columns
+ggplot(tmp, aes(x=datetime)) + 
+  geom_line(aes(y=actual, color="Actual")) +
+  geom_line(aes(y=predicted_trend, color="Predicted")) +
+  labs(title = "Actual vs Predicted Production",
+       subtitle = paste("Forecast from", min(tmp$date.x), "to", max(tmp$date.x)),
+       x = "Date",
+       y = "Production") +
+  theme_minimal() +
+  scale_color_manual(values = c("Actual" = "blue", "Predicted" = "red"))
+
+```
+
+# Conclusions and Future Work
+
+## Summary
+
+Our analysis and modeling efforts have demonstrated the effectiveness of using a combination of weather variables and historical production data to forecast hourly solar power production at the Edikli GES solar power plant. By iteratively building and refining multiple linear regression models, we identified Model 13 as the most accurate and robust predictor. This model incorporates a diverse set of features, including surface temperature, total cloud cover, and various lagged production values, capturing both short-term and long-term dependencies in the data. The inclusion of categorical time features further enhanced the model's ability to account for daily, weekly, and monthly patterns in solar power production.
+
+Our approach highlighted the importance of feature engineering in improving model performance. The creation of lagged variables and the inclusion of detailed weather data were crucial in capturing the temporal and environmental factors influencing solar power production. Additionally, the iterative model-building process allowed us to systematically evaluate and incorporate the most significant predictors, leading to a highly accurate forecasting model.
+
+## Possible Improvements and Future Work
+
+Lets check the WMAPE value of our model.
+
+```{r}
+calculate_wmape <- function(actual, predicted) {
+  sum_abs_errors <- sum(abs(actual - predicted), na.rm = TRUE)
+  total_actual <- sum(actual, na.rm = TRUE)
+  if (total_actual == 0) {
+    return(NA)
+  } else {
+    wmape <- sum_abs_errors / total_actual
+    return(wmape) 
+  }
+}
+wmape_value <- calculate_wmape(tmp$actual, tmp$predicted_trend)
+print(paste("The WMAPE value is:", wmape_value))
+
+```
+
+This is acceptable but not a great WMAPE value, there are several potential improvements that could further enhance its accuracy and robustness.
+
+One of those improvements could be exploring non-linear models such as regression trees, random forests or so. These approaches could capture more complex relationships in the data that linear regression models may miss.
+
+Although we use many weather variables, there still may be more detailed weather data such as wind speed, humidity, and etc. Those could provide a more comprehensive understanding of the factors affecting solar power production.
+
+By pursuing these extensions, we can continue to refine our forecasting model and enhance its ability to accurately predict solar power production, ultimately contributing to more effective energy management and planning.
+
+# Code
+
+Our main code is also in GitHub page.
+
+We also attempted ARIMA models, which unfortunately did not succeed, but you can find on GitHub page.

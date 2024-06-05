@@ -1,0 +1,236 @@
+```{r}
+require(data.table)
+require(lubridate)
+require(forecast)
+require(skimr)
+require(repr)
+require(openxlsx) #library(openxlsx)
+require(ggplot2)
+require(data.table)
+require(skimr)
+require(GGally)
+require(ggcorrplot)
+require(forecast)
+
+library(data.table)
+library(lubridate)
+library(forecast)
+library(skimr)
+library(repr)
+library(readxl)
+todays_date=Sys.Date()
+forecast_date=todays_date+1
+
+
+options(repr.plot.width=12.7, repr.plot.height=8.5)
+
+data_path2='/Users/kesici/Downloads/processed_weather.csv'
+weather_info=fread(data_path2)
+
+weather_info[,datetime:=ymd(date)+dhours(hour)]
+weather_info=weather_info[order(datetime)]
+
+head(weather_info,25)
+
+data_path='/Users/kesici/Downloads/production 2.csv'
+production=fread(data_path)
+production[,datetime:=ymd(date)+dhours(hour)]
+production=production[order(datetime)]
+
+
+head(production,25)
+str(production)
+
+```
+
+
+
+
+```{r}
+hourly_series=weather_info[,list(dswrf_surface=sum(dswrf_surface)/25,tcdc_low.cloud.layer
+=sum(tcdc_low.cloud.layer)/25,tcdc_middle.cloud.layer
+=sum(tcdc_middle.cloud.layer
+)/25,tcdc_high.cloud.layer
+=sum(tcdc_high.cloud.layer
+)/25,tcdc_entire.atmosphere
+=sum(tcdc_entire.atmosphere
+)/25,uswrf_top_of_atmosphere=sum(uswrf_top_of_atmosphere)/25,csnow_surface=sum(csnow_surface)/25,dlwrf_surface=sum(dlwrf_surface)/25,uswrf_surface=sum(uswrf_surface)/25,tmp_surface=sum(tmp_surface)/25),list(date,hour)]
+
+hourly_series[,datetime:=ymd(date)+dhours(hour)]
+#daily_series=consumption[,list(total=sum(Consumption),max_t=max(T_1),weighted_t=sum(Consumption*T_#1)/sum(Consumption)),list(Date)]
+#head(daily_series)
+
+head(hourly_series)
+
+```
+
+
+```{r}
+mergeddata<-merge(hourly_series,production,by="datetime",all.x=T)
+head(mergeddata)
+
+newdata=mergeddata
+
+data=newdata[,-c("date.y")]
+data=data[,-c("hour.y")]
+
+
+```
+
+```{r}
+# forecast with ARIMA models
+forecast_with_arima=function(newdata,forecast_ahead,target_name='production', pretrained_model=NULL,
+                              is_seasonal=F,is_stepwise=F,is_trace=T,is_approx=F,seasonal_freq=NULL){
+    if(is_seasonal){
+        if(is.null(seasonal_freq)){
+            seasonal_freq = 24 #hard coded as seven periods
+        }
+        command_string=sprintf('input_series=ts(data$%s,frequency=seasonal_freq)',target_name)
+    } else {
+        command_string=sprintf('input_series=data$%s',target_name)
+    }
+    print(command_string)
+    eval(parse(text=command_string))
+
+    if(is.null(pretrained_model)){
+        fitted=auto.arima(input_series,seasonal=is_seasonal,
+                      trace=is_trace,stepwise=is_stepwise,approximation=is_approx)
+    } else {
+        fitted=Arima(input_series, model=pretrained_model)
+    }
+    
+    forecasted=forecast(fitted,h=forecast_ahead)
+    
+    return(list(forecast=as.numeric(forecasted$mean[forecast_ahead]),model=fitted))
+}
+```
+
+
+```{r}
+train_start=as_datetime('2022-01-01 04:00:00')
+test_start=as_datetime('2023-01-01 12:00:00	')
+test_end=as_datetime('2024-01-01 11:00:00	')
+test_end
+
+test_hour=seq(test_start,test_end, by='hour')
+test_hour
+```
+
+
+```{r}
+# loop over the test dates
+forecast_ahead=48
+
+results=vector('list',length(test_hour))
+i=1
+#for(i in 1:length(test_hour)){
+    current_hour=test_hour[i]-forecast_ahead
+    
+    past_data=newdata[hour.x<=current_hour]
+    forecast_data=newdata[hour.x==test_hour[i]]
+    
+     # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'production')
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+
+    # sarima model with auto.arima
+    sarima_forecast=forecast_with_arima(past_data,forecast_ahead,'production',is_seasonal=TRUE,seasonal_freq=24)
+    forecast_data[,sarima_prediction:=sarima_forecast$forecast]
+
+    results[[i]]=forecast_data
+#}
+forecast_data
+#store for future use
+
+
+arima_model = arima_forecast$model
+sarima_model = sarima_forecast$model
+```
+
+```{r}
+#loop over the test dates
+forecast_ahead=24
+
+results=vector('list',length(test_hour))
+arima_model = Arima(data$production, order = c(2, 0, 1), seasonal = c(2, 1, 0))
+for(i in 1:length(test_hour)){
+    current_hour=test_hour[i]-forecast_ahead
+    print(test_hour[i])
+    past_data=production[hour<=current_hour]
+    forecast_data=production[hour==test_hour[i]]
+    
+    ## first lm models
+    #fmla='mean_consumption~trend+w_day+mon'
+    #forecasted=forecast_with_lr(fmla,past_data,forecast_data)
+    #forecast_data[,lm_prediction:=forecasted$forecast]
+
+    # arima model with auto.arima
+    arima_forecast=forecast_with_arima(past_data,forecast_ahead,'production',is_trace=F)
+    forecast_data[,arima_prediction:=arima_forecast$forecast]
+
+    arima_pretrained_forecast=forecast_with_arima(past_data,forecast_ahead,'production',
+                                                      pretrained_model=arima_model,is_trace=F)
+    forecast_data[,arima_pretrained_prediction:=arima_pretrained_forecast$forecast]
+
+    # sarima model with auto.arima
+    sarima_pretrained_forecast=forecast_with_arima(past_data,forecast_ahead,'production',
+                                                    pretrained_model=sarima_model,is_trace=F, is_seasonal=TRUE,seasonal_freq=24)
+    forecast_data[,sarima_pretrained_prediction:=sarima_pretrained_forecast$forecast]
+    
+    results[[i]]=forecast_data
+}
+
+overall_results=rbindlist(results)
+
+melted_result=melt(overall_results,c('hour.x','production'),c('arima_prediction','arima_pretrained_prediction','sarima_pretrained_prediction'))
+
+```
+
+
+```{r}
+arima_model
+sarima_model
+
+overall_results=rbindlist(results)
+
+melted_result=melt(overall_results,c('date.x','production'),c('arima_prediction','sarima_prediction'))
+melted_result
+```
+
+```{r}
+accu=function(actual,forecast){
+  n=length(actual)
+  error=actual-forecast
+  mean=mean(actual)
+  sd=sd(actual)
+  CV=sd/mean
+  FBias=sum(error)/sum(actual)
+  MAPE=sum(abs(error/actual))/n
+  RMSE=sqrt(sum(error^2)/n)
+  MAD=sum(abs(error))/n
+  MADP=sum(abs(error))/sum(abs(actual))
+  WMAPE=MAD/mean
+  l=data.frame(n,mean,sd,CV,FBias,MAPE,RMSE,MAD,MADP,WMAPE)
+  return(l)
+}
+
+melted_result[,accu(production,value),by=list(variable)]
+```
+
+
+```{r}
+a=data[data$date.x >="2024-01-30",]
+# Fitting the model with drift
+fit1 <- arima(a$production, order = c(2, 0, 1), seasonal = c(2, 1, 0))
+forecast1 <- forecast(fit1,h=72)  # Change 'h' for more or fewer periods ahead
+
+# Plot the forecast
+plot(forecast1)
+plot(a$production)
+
+ggplot(a,aes(x=hour.x,y=production)) +
+        geom_line(aes(y=production,color='real')) + 
+        geom_line(aes(y=a$production,color='predicted'))
+forecast1
+```
+
